@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="h-full bg-slate-950 text-slate-100">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Arena das Bolinhas - Multiplayer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&family=Rajdhani:wght@600;700&display=swap');
+        
+        body {
+            font-family: 'Outfit', sans-serif;
+            touch-action: manipulation;
+            user-select: none;
+            -webkit-user-select: none;
+            overflow: hidden;
+        }
+
+        .font-rajdhani {
+            font-family: 'Rajdhani', sans-serif;
+        }
+
+        /* Glassmorphism UI */
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* Glowing text effect */
+        .text-glow {
+            text-shadow: 0 0 10px rgba(56, 189, 248, 0.6);
+        }
+
+        canvas {
+            display: block;
+            background-color: #030712;
+        }
+    </style>
+</head>
+<body class="h-full w-full flex flex-col justify-between overflow-hidden bg-slate-950">
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, updateDoc, deleteDoc, onSnapshot, collection, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        window.FB = {
+            initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged,
+            getFirestore, doc, setDoc, getDoc, updateDoc, deleteDoc, onSnapshot, collection, query
+        };
+    </script>
+
+    <div id="app" class="relative w-full h-full flex flex-col">
+
+        <!-- Login / Entry Overlay -->
+        <div id="login-modal" class="absolute inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
+            <div class="max-w-md w-full glass-panel rounded-3xl p-8 shadow-2xl flex flex-col gap-6 text-center border border-sky-500/30 relative overflow-hidden">
+                <div class="absolute -top-16 -right-16 w-36 h-36 bg-sky-500/20 rounded-full blur-3xl"></div>
+                <div class="absolute -bottom-16 -left-16 w-36 h-36 bg-indigo-500/20 rounded-full blur-3xl"></div>
+
+                <div>
+                    <h1 class="text-4xl font-extrabold font-rajdhani tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-sky-400 via-indigo-300 to-pink-500 text-glow">
+                        ARENA DAS BOLINHAS
+                    </h1>
+                    <p class="text-xs font-semibold uppercase tracking-widest text-slate-400 mt-1">Multiplayer em Tempo Real</p>
+                </div>
+
+                <div class="space-y-4 text-left">
+                    <div>
+                        <label class="block text-xs font-bold uppercase text-slate-300 mb-1.5 ml-1">Seu Apelido</label>
+                        <div class="relative">
+                            <input type="text" id="nickname-input" maxlength="15" placeholder="Digite seu nome..." 
+                                class="w-full bg-slate-900/90 border border-slate-700 focus:border-sky-400 rounded-2xl px-4 py-3 text-sm text-white font-bold outline-none transition shadow-inner">
+                            <i class="fa-solid fa-user absolute right-4 top-3.5 text-slate-500"></i>
+                        </div>
+                    </div>
+
+                    <!-- Color Preview -->
+                    <div>
+                        <label class="block text-xs font-bold uppercase text-slate-300 mb-1.5 ml-1">Sua Cor Aleatória</label>
+                        <div class="flex items-center gap-3 bg-slate-900/60 p-3 rounded-2xl border border-slate-800">
+                            <div id="color-preview" class="w-10 h-10 rounded-full shadow-lg border-2 border-white/80 transition-all duration-300 transform scale-100 hover:scale-105"></div>
+                            <div class="flex-1">
+                                <span id="color-name" class="font-bold text-sm text-slate-200 block">Sorteando...</span>
+                                <span class="text-[10px] text-slate-400">Cor gerada automaticamente</span>
+                            </div>
+                            <button id="btn-randomize-color" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 rounded-xl border border-slate-700 transition">
+                                <i class="fa-solid fa-dice mr-1 text-sky-400"></i> Trocar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <button id="btn-enter-game" class="w-full py-4 bg-gradient-to-r from-sky-500 via-indigo-500 to-purple-600 hover:from-sky-400 hover:to-purple-500 text-white font-rajdhani font-extrabold text-lg rounded-2xl shadow-lg shadow-sky-500/25 transition transform active:scale-95 flex items-center justify-center gap-2 tracking-wide">
+                    ENTRAR NA ARENA <i class="fa-solid fa-arrow-right"></i>
+                </button>
+
+                <div id="status-message" class="text-xs text-slate-400 flex items-center justify-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Servidores Prontos
+                </div>
+            </div>
+        </div>
+
+        <!-- In-Game HUD -->
+        <div id="game-hud" class="hidden absolute inset-0 z-30 pointer-events-none p-4 flex flex-col justify-between">
+            
+            <!-- Top HUD Bar -->
+            <div class="flex justify-between items-start w-full pointer-events-auto">
+                <!-- Room & Connection Info -->
+                <div class="glass-panel px-4 py-2.5 rounded-2xl flex items-center gap-3">
+                    <div class="w-3 h-3 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]"></div>
+                    <div>
+                        <div class="text-[10px] text-slate-400 uppercase font-extrabold">Jogadores On-line</div>
+                        <div id="online-count" class="text-lg font-bold font-rajdhani text-white leading-none">1</div>
+                    </div>
+                </div>
+
+                <!-- Leaderboard Widget -->
+                <div class="glass-panel p-3 rounded-2xl max-w-xs w-48 text-xs">
+                    <div class="font-extrabold uppercase text-slate-300 mb-1.5 flex items-center justify-between border-b border-slate-800 pb-1">
+                        <span><i class="fa-solid fa-trophy text-amber-400 mr-1"></i> Jogadores</span>
+                        <span class="text-[10px] text-slate-500">Mapa Global</span>
+                    </div>
+                    <ul id="leaderboard-list" class="space-y-1 font-semibold text-slate-300">
+                        <!-- Populated dynamically -->
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Controls Overlay (Mobile Joystick + Boost) -->
+            <div class="flex items-end justify-between w-full pointer-events-auto relative">
+                <!-- Virtual Touch Joystick -->
+                <div id="joystick-zone" class="w-28 h-28 md:w-36 md:h-36 glass-panel rounded-full relative touch-none flex items-center justify-center border-2 border-slate-700/50">
+                    <div id="joystick-handle" class="w-10 h-10 md:w-12 md:h-12 bg-sky-400/80 border-2 border-white rounded-full shadow-lg absolute pointer-events-none transition-transform duration-75"></div>
+                </div>
+
+                <!-- Action Button (Sprint/Boost) -->
+                <button id="btn-boost" class="w-16 h-16 md:w-20 md:h-20 glass-panel rounded-full border-2 border-sky-400/50 text-sky-400 text-xl font-bold flex flex-col items-center justify-center shadow-lg transition active:scale-90 active:bg-sky-500/20 active:text-white">
+                    <i class="fa-solid fa-bolt text-2xl"></i>
+                    <span class="text-[9px] font-extrabold uppercase mt-0.5">Turbo</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Canvas World Rendering -->
+        <canvas id="game-canvas" class="w-full h-full block"></canvas>
+    </div>
+
+    <script>
+        // Color Palette Generator
+        const COLOR_PALETTE = [
+            '#00f0ff', '#ff2a6d', '#05ffa1', '#ffb703', '#7000ff',
+            '#ff7b00', '#38bdf8', '#f43f5e', '#a855f7', '#10b981'
+        ];
+
+        // Map Boundaries (Large Square World)
+        const MAP_SIZE = 3000; // 3000x3000px square map
+        const BALL_RADIUS = 22;
+
+        // Player State Variables
+        let localPlayer = {
+            id: 'p_' + Math.random().toString(36).substr(2, 9),
+            name: 'Bolinha',
+            color: COLOR_PALETTE[Math.floor(Math.random() * COLOR_PALETTE.length)],
+            x: MAP_SIZE / 2 + (Math.random() * 400 - 200),
+            y: MAP_SIZE / 2 + (Math.random() * 400 - 200),
+            vx: 0,
+            vy: 0,
+            speed: 5.5,
+            isBoosting: false
+        };
+
+        let players = {}; // Remote players cache
+        let keysPressed = {};
+        let joystick = { active: false, startX: 0, startY: 0, moveX: 0, moveY: 0 };
+        let canvas, ctx;
+        let db = null, auth = null;
+        let isConnected = false;
+        let lastSyncTime = 0;
+
+        window.addEventListener('load', () => {
+            canvas = document.getElementById('game-canvas');
+            ctx = canvas.getContext('2d');
+            resizeCanvas();
+
+            window.addEventListener('resize', resizeCanvas);
+            setupInputListeners();
+            randomizeLocalColor();
+            initFirebase();
+
+            // Start main loop
+            requestAnimationFrame(gameLoop);
+        });
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        function randomizeLocalColor() {
+            localPlayer.color = COLOR_PALETTE[Math.floor(Math.random() * COLOR_PALETTE.length)];
+            const preview = document.getElementById('color-preview');
+            const colorName = document.getElementById('color-name');
+            preview.style.backgroundColor = localPlayer.color;
+            preview.style.boxShadow = `0 0 15px ${localPlayer.color}aa`;
+            colorName.innerText = localPlayer.color.toUpperCase();
+        }
+
+        function setupInputListeners() {
+            // Randomize color button
+            document.getElementById('btn-randomize-color').onclick = randomizeLocalColor;
+
+            // Keyboard listeners
+            window.addEventListener('keydown', (e) => {
+                keysPressed[e.key.toLowerCase()] = true;
+                if (e.key === 'Shift' || e.key === ' ') localPlayer.isBoosting = true;
+            });
+
+            window.addEventListener('keyup', (e) => {
+                keysPressed[e.key.toLowerCase()] = false;
+                if (e.key === 'Shift' || e.key === ' ') localPlayer.isBoosting = false;
+            });
+
+            // Virtual Touch Joystick for Mobile Devices
+            const joyZone = document.getElementById('joystick-zone');
+            const joyHandle = document.getElementById('joystick-handle');
+
+            joyZone.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                const touch = e.touches[0];
+                const rect = joyZone.getBoundingClientRect();
+                joystick.active = true;
+                joystick.startX = rect.left + rect.width / 2;
+                joystick.startY = rect.top + rect.height / 2;
+                updateJoystick(touch.clientX, touch.clientY);
+            });
+
+            window.addEventListener('touchmove', (e) => {
+                if (!joystick.active) return;
+                const touch = e.touches[0];
+                updateJoystick(touch.clientX, touch.clientY);
+            });
+
+            window.addEventListener('touchend', () => {
+                joystick.active = false;
+                joystick.moveX = 0;
+                joystick.moveY = 0;
+                joyHandle.style.transform = `translate(0px, 0px)`;
+            });
+
+            function updateJoystick(clientX, clientY) {
+                const dx = clientX - joystick.startX;
+                const dy = clientY - joystick.startY;
+                const dist = Math.hypot(dx, dy);
+                const maxDist = 45;
+                const angle = Math.atan2(dy, dx);
+
+                const moveDist = Math.min(dist, maxDist);
+                joystick.moveX = Math.cos(angle) * (moveDist / maxDist);
+                joystick.moveY = Math.sin(angle) * (moveDist / maxDist);
+
+                joyHandle.style.transform = `translate(${Math.cos(angle) * moveDist}px, ${Math.sin(angle) * moveDist}px)`;
+            }
+
+            // Turbo boost button
+            const btnBoost = document.getElementById('btn-boost');
+            btnBoost.addEventListener('touchstart', (e) => { e.preventDefault(); localPlayer.isBoosting = true; });
+            btnBoost.addEventListener('touchend', () => { localPlayer.isBoosting = false; });
+            btnBoost.addEventListener('mousedown', () => { localPlayer.isBoosting = true; });
+            btnBoost.addEventListener('mouseup', () => { localPlayer.isBoosting = false; });
+
+            // Enter game
+            document.getElementById('btn-enter-game').onclick = enterGame;
+        }
+
+        function initFirebase() {
+            try {
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'bolinhas-multiplayer-app';
+                const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+
+                if (!firebaseConfig) return;
+
+                const app = FB.initializeApp(firebaseConfig);
+                db = FB.getFirestore(app);
+                auth = FB.getAuth(app);
+
+                const authMethod = typeof __initial_auth_token !== 'undefined' 
+                    ? FB.signInWithCustomToken(auth, __initial_auth_token)
+                    : FB.signInAnonymously(auth);
+
+                authMethod.then(() => {
+                    isConnected = true;
+                    listenToPlayers(appId);
+                }).catch(err => console.error("Firebase auth failed:", err));
+
+            } catch (err) {
+                console.warn("Operating in offline/local mode.");
+            }
+        }
+
+        function listenToPlayers(appId) {
+            if (!db) return;
+            const playersCol = FB.collection(db, 'artifacts', appId, 'public', 'data', 'players');
+            
+            FB.onSnapshot(playersCol, (snapshot) => {
+                const updatedPlayers = {};
+                snapshot.forEach(docSnap => {
+                    const data = docSnap.data();
+                    if (data.id !== localPlayer.id) {
+                        updatedPlayers[data.id] = data;
+                    }
+                });
+                players = updatedPlayers;
+                updateLeaderboard();
+            }, (error) => console.error("Snapshot error:", error));
+        }
+
+        function enterGame() {
+            const nickInput = document.getElementById('nickname-input').value.trim();
+            if (nickInput) localPlayer.name = nickInput;
+
+            document.getElementById('login-modal').classList.add('hidden');
+            document.getElementById('game-hud').classList.remove('hidden');
+
+            players[localPlayer.id] = localPlayer;
+            syncPlayerToCloud();
+        }
+
+        function syncPlayerToCloud() {
+            if (!isConnected || !db) return;
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'bolinhas-multiplayer-app';
+            const playerDoc = FB.doc(db, 'artifacts', appId, 'public', 'data', 'players', localPlayer.id);
+
+            FB.setDoc(playerDoc, {
+                id: localPlayer.id,
+                name: localPlayer.name,
+                color: localPlayer.color,
+                x: Math.round(localPlayer.x),
+                y: Math.round(localPlayer.y),
+                lastActive: Date.now()
+            }, { merge: true });
+        }
+
+        function updateLeaderboard() {
+            const list = document.getElementById('leaderboard-list');
+            list.innerHTML = '';
+
+            const allPlayers = Object.values(players);
+            allPlayers.push(localPlayer);
+
+            document.getElementById('online-count').innerText = allPlayers.length;
+
+            allPlayers.slice(0, 5).forEach(p => {
+                const li = document.createElement('li');
+                li.className = "flex items-center gap-2 truncate";
+                li.innerHTML = `
+                    <span class="w-2.5 h-2.5 rounded-full" style="background-color: ${p.color}"></span>
+                    <span class="truncate ${p.id === localPlayer.id ? 'text-sky-400 font-extrabold' : ''}">${p.name} ${p.id === localPlayer.id ? '(Você)' : ''}</span>
+                `;
+                list.appendChild(li);
+            });
+        }
+
+        function updatePhysics() {
+            let moveX = 0;
+            let moveY = 0;
+
+            if (keysPressed['w'] || keysPressed['arrowup']) moveY -= 1;
+            if (keysPressed['s'] || keysPressed['arrowdown']) moveY += 1;
+            if (keysPressed['a'] || keysPressed['arrowleft']) moveX -= 1;
+            if (keysPressed['d'] || keysPressed['arrowright']) moveX += 1;
+
+            if (joystick.active) {
+                moveX = joystick.moveX;
+                moveY = joystick.moveY;
+            }
+
+            const speed = localPlayer.isBoosting ? localPlayer.speed * 1.7 : localPlayer.speed;
+
+            if (moveX !== 0 || moveY !== 0) {
+                const len = Math.hypot(moveX, moveY);
+                localPlayer.x += (moveX / len) * speed;
+                localPlayer.y += (moveY / len) * speed;
+            }
+
+            // BARRIER / MAP BOUNDARY COLLISION LOCK
+            // Prevents the ball from ever leaving the square map
+            if (localPlayer.x - BALL_RADIUS < 0) localPlayer.x = BALL_RADIUS;
+            if (localPlayer.x + BALL_RADIUS > MAP_SIZE) localPlayer.x = MAP_SIZE - BALL_RADIUS;
+            if (localPlayer.y - BALL_RADIUS < 0) localPlayer.y = BALL_RADIUS;
+            if (localPlayer.y + BALL_RADIUS > MAP_SIZE) localPlayer.y = MAP_SIZE - BALL_RADIUS;
+
+            // Sync with Firestore periodically (every 100ms)
+            const now = Date.now();
+            if (now - lastSyncTime > 100) {
+                syncPlayerToCloud();
+                lastSyncTime = now;
+            }
+        }
+
+        function render() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Camera offset to keep player centered
+            const camX = canvas.width / 2 - localPlayer.x;
+            const camY = canvas.height / 2 - localPlayer.y;
+
+            ctx.save();
+            ctx.translate(camX, camY);
+
+            // 1. Draw Grid Background
+            const gridSize = 100;
+            ctx.strokeStyle = '#1e293b';
+            ctx.lineWidth = 1;
+
+            const startX = Math.floor(-camX / gridSize) * gridSize;
+            const endX = startX + canvas.width + gridSize * 2;
+            const startY = Math.floor(-camY / gridSize) * gridSize;
+            const endY = startY + canvas.height + gridSize * 2;
+
+            ctx.beginPath();
+            for (let x = Math.max(0, startX); x <= Math.min(MAP_SIZE, endX); x += gridSize) {
+                ctx.moveTo(x, Math.max(0, startY));
+                ctx.lineTo(x, Math.min(MAP_SIZE, endY));
+            }
+            for (let y = Math.max(0, startY); y <= Math.min(MAP_SIZE, endY); y += gridSize) {
+                ctx.moveTo(Math.max(0, startX), y);
+                ctx.lineTo(Math.min(MAP_SIZE, endX), y);
+            }
+            ctx.stroke();
+
+            // 2. Draw Outer Map Boundary Barrier Wall (Forcefield Glow)
+            ctx.strokeStyle = '#ef4444';
+            ctx.shadowColor = '#ef4444';
+            ctx.shadowBlur = 20;
+            ctx.lineWidth = 8;
+            ctx.strokeRect(0, 0, MAP_SIZE, MAP_SIZE);
+            ctx.shadowBlur = 0; // Reset blur
+
+            // Darken outside map zone
+            ctx.fillStyle = '#000000bb';
+            ctx.fillRect(-2000, -2000, MAP_SIZE + 4000, 2000); // Top
+            ctx.fillRect(-2000, MAP_SIZE, MAP_SIZE + 4000, 2000); // Bottom
+            ctx.fillRect(-2000, 0, 2000, MAP_SIZE); // Left
+            ctx.fillRect(MAP_SIZE, 0, 2000, MAP_SIZE); // Right
+
+            // 3. Draw All Remote Players
+            Object.values(players).forEach(p => {
+                if (p.id !== localPlayer.id) {
+                    drawBall(p.x, p.y, p.color, p.name);
+                }
+            });
+
+            // 4. Draw Local Player
+            drawBall(localPlayer.x, localPlayer.y, localPlayer.color, localPlayer.name, true);
+
+            ctx.restore();
+        }
+
+        function drawBall(x, y, color, name, isSelf = false) {
+            // Ball Shadow
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+            ctx.beginPath();
+            ctx.ellipse(x, y + BALL_RADIUS + 4, BALL_RADIUS * 0.9, BALL_RADIUS * 0.4, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Main Ball Body
+            ctx.fillStyle = color;
+            ctx.shadowColor = color;
+            ctx.shadowBlur = isSelf ? 20 : 10;
+            ctx.beginPath();
+            ctx.arc(x, y, BALL_RADIUS, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Inner Highlight / Gloss
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+            ctx.beginPath();
+            ctx.arc(x - BALL_RADIUS * 0.3, y - BALL_RADIUS * 0.3, BALL_RADIUS * 0.35, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Border Outline
+            ctx.strokeStyle = isSelf ? '#ffffff' : 'rgba(255, 255, 255, 0.4)';
+            ctx.lineWidth = isSelf ? 3 : 2;
+            ctx.beginPath();
+            ctx.arc(x, y, BALL_RADIUS, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // Player Name Tag
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 13px Outfit, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.shadowColor = '#000000';
+            ctx.shadowBlur = 4;
+            ctx.fillText(name, x, y - BALL_RADIUS - 10);
+            ctx.shadowBlur = 0;
+        }
+
+        function gameLoop() {
+            updatePhysics();
+            render();
+            requestAnimationFrame(gameLoop);
+        }
+    </script>
+</body>
+</html>
